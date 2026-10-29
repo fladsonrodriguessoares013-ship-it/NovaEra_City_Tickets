@@ -5,8 +5,8 @@ const path = require('node:path');
 const fs = require('node:fs');
 
 const TOKEN = process.env.TOKEN;
-const GUILD_ID = process.env.GUILD_ID;
-const STAFF_ROLE_ID = process.env.STAFF_ROLE_ID;
+const GUILD_ID = (process.env.GUILD_ID || '').trim();
+const STAFF_ROLE_ID = (process.env.STAFF_ROLE_ID || '').trim();
 const TICKET_CATEGORY_ID = process.env.TICKET_CATEGORY_ID || '';
 const LOG_CHANNEL_ID = process.env.LOG_CHANNEL_ID || '';
 const PORT = Number(process.env.PORT || 10000);
@@ -88,12 +88,28 @@ client.on('interactionCreate', async i => {
       const channels = await i.guild.channels.fetch();
       const existing = channels.find(ch => ch && parseTicket(ch)?.owner === i.user.id);
       if (existing) return i.editReply(`⚠️ Você já tem um ticket aberto: ${existing}`);
+      // Resolve os objetos antes de criar permissionOverwrites. Um ID de cargo
+      // incorreto ou nao carregado causava DiscordjsTypeError [InvalidType].
+      const staffRole = await i.guild.roles.fetch(STAFF_ROLE_ID).catch(() => null);
+      if (!staffRole) {
+        console.error(`STAFF_ROLE_ID invalido para o servidor ${i.guild.id}: ${STAFF_ROLE_ID}`);
+        return i.editReply('❌ O cargo da equipe nao foi encontrado. Confira STAFF_ROLE_ID no Render (copie o ID do CARGO, nao do usuario ou canal).');
+      }
+      const ticketMember = await i.guild.members.fetch(i.user.id);
+      const botMember = await i.guild.members.fetchMe();
+      const allow = [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.AttachFiles];
       const overwrites = [
-        { id: i.guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
-        { id: i.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.AttachFiles] },
-        { id: STAFF_ROLE_ID, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.AttachFiles] },
-        { id: client.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.AttachFiles, PermissionsBitField.Flags.ManageChannels] }
+        { id: i.guild.roles.everyone, deny: [PermissionsBitField.Flags.ViewChannel] },
+        { id: ticketMember, allow },
+        { id: staffRole, allow },
+        { id: botMember, allow: [...allow, PermissionsBitField.Flags.ManageChannels] }
       ];
+      if (TICKET_CATEGORY_ID) {
+        const category = await i.guild.channels.fetch(TICKET_CATEGORY_ID).catch(() => null);
+        if (!category || category.type !== ChannelType.GuildCategory) {
+          return i.editReply('❌ TICKET_CATEGORY_ID nao corresponde a uma categoria valida deste servidor. Corrija ou deixe a variavel vazia.');
+        }
+      }
       const ch = await i.guild.channels.create({ name: `ticket-${shortName(i.user.username)}`, type: ChannelType.GuildText, ...(TICKET_CATEGORY_ID ? { parent: TICKET_CATEGORY_ID } : {}), topic: topicOf(i.user.id, type), permissionOverwrites: overwrites, reason: `Ticket ${topics[type].name} aberto por ${i.user.tag}` });
       await ch.send({ content: `<@${i.user.id}> <@&${STAFF_ROLE_ID}>`, embeds: [ticketEmbed(i.user.id, type, ch.id)], files: [img('logo-ticket.png')], components: controls(), allowedMentions: { users: [i.user.id], roles: [STAFF_ROLE_ID] } });
       await i.editReply(`✅ Seu ticket foi aberto: ${ch}`);
