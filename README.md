@@ -1,39 +1,23 @@
-# NOVAERA CITY | TICKETS PROFISSIONAL
+# NOVAERA CITY | Tickets — 7 cargos
 
-Bot separado de tickets Discord, com painel preto/dourado e imagens enviadas pelo usuário.
+Atualização do bot profissional para **Fundador, Desenvolvedor, Cúpula, Administrador, Suporte, Staff e Ajudante**. Mantém imagens e painel.
 
-## GitHub (atualizar o repositório existente)
+## GitHub
+Extraia o ZIP e envie **o conteúdo** para a raiz do repositório `NovaEra_City_Tickets`, substituindo `index.js` e os demais arquivos. A pasta `assets` deve ficar ao lado do `index.js`. Não envie token.
 
-1. Extraia este ZIP.
-2. Entre no repositório `NovaEra_City_Tickets`.
-3. Envie **index.js**, **package.json**, **README.md**, **.gitignore**, **.env.example** e a pasta **assets** na raiz do repositório. Substitua os arquivos antigos.
-4. Não envie token, `.env` ou `node_modules`.
+## Render > Environment
+- `TOKEN`: token do bot (privado).
+- `GUILD_ID`: ID do servidor Discord.
+- `STAFF_ROLE_IDS`: IDs dos **sete cargos**, separados por vírgula (também aceita espaços). **Não são nomes de cargos**.
+- `TICKET_CATEGORY_ID`: opcional, ID da categoria onde criar tickets.
+- `LOG_CHANNEL_ID`: opcional, ID do canal de logs.
 
-## Render
+Remova `STAFF_ROLE_ID` antigo se quiser; `STAFF_ROLE_IDS` tem prioridade. Faça deploy do commit mais recente.
 
-Mantenha o mesmo serviço Render, sem criar outro.
-- Build Command: `npm install`
-- Start Command: `npm start`
-- Root Directory: vazio
-- Environment:
-  - `TOKEN`: token do bot de tickets (privado)
-  - `GUILD_ID`: `1523378549187285124`
-  - `STAFF_ROLE_ID`: ID de um cargo **que realmente existe** no servidor e que será a equipe de atendimento.
-  - `TICKET_CATEGORY_ID`: opcional, ID da categoria onde os canais serão criados.
-  - `LOG_CHANNEL_ID`: opcional, ID do canal para registros e transcrições.
-  - `PORT`: Render define automaticamente; pode deixar sem configurar.
+## Uso
+Execute `/painel` em um canal onde o bot possa enviar mensagens. Selecione um atendimento para criar um canal privado. Os sete cargos válidos configurados poderão visualizar, assumir e fechar tickets. O autor também pode fechar seu ticket.
 
-Após enviar arquivos ao GitHub, faça **Manual Deploy > Deploy latest commit**, se não houver deploy automático.
+## Verificação
+Se aparecer `Nenhum cargo de atendimento foi encontrado`, confira os IDs copiados em Configurações do servidor > Cargos. O bot precisa de **Gerenciar canais**, **Ver canais**, **Enviar mensagens**, **Inserir links**, **Anexar arquivos** e **Ler histórico de mensagens**.
 
-## Discord
-
-- Dê ao bot as permissões **Ver canais, Enviar mensagens, Inserir links, Anexar arquivos, Ler histórico de mensagens e Gerenciar canais**.
-- Confira as permissões no canal onde executará `/painel`.
-- Use `/painel` como administrador ou membro com **Gerenciar servidor**.
-- O painel abre quatro categorias no menu; o ticket aparece em canal privado com cartão personalizado e botões **Assumir Ticket** / **Fechar Ticket**.
-- `STAFF_ROLE_ID` deve ser um cargo real; ID incorreto pode gerar `DiscordAPIError[10011]: Unknown Role` ou `Missing Access`.
-- Se aparecer erro no Discord, confira os logs do Render. O bot mostra o código de erro quando disponível.
-
-## Observações
-
-A imagem do painel é a imagem fornecida, com elementos estáticos. Jogador, categoria, data e status no cartão de ticket são atualizados por embed do Discord. As transcrições são enviadas ao canal de logs somente se `LOG_CHANNEL_ID` estiver configurado. A criação de ticket não depende de banco de dados: tickets abertos são encontrados pelo tópico do canal.
+**Observação:** as imagens são anexadas pelo bot a partir de `assets/painel-novaera.png` e `assets/logo-ticket.png`.

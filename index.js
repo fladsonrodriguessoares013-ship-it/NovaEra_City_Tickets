@@ -6,11 +6,17 @@ const fs = require('node:fs');
 
 const TOKEN = process.env.TOKEN;
 const GUILD_ID = (process.env.GUILD_ID || '').trim();
-const STAFF_ROLE_ID = (process.env.STAFF_ROLE_ID || '').trim();
+// Aceita IDs separados por virgula, espaco ou quebra de linha.
+// STAFF_ROLE_ID antigo continua aceito como alternativa.
+const STAFF_ROLE_IDS = [...new Set((process.env.STAFF_ROLE_IDS || process.env.STAFF_ROLE_ID || '')
+  .split(/[\s,;]+/).map(s => s.trim()).filter(Boolean))];
+const SNOWFLAKE = /^\d{17,20}$/;
 const TICKET_CATEGORY_ID = process.env.TICKET_CATEGORY_ID || '';
 const LOG_CHANNEL_ID = process.env.LOG_CHANNEL_ID || '';
 const PORT = Number(process.env.PORT || 10000);
-if (!TOKEN || !GUILD_ID || !STAFF_ROLE_ID) { console.error('Configure TOKEN, GUILD_ID e STAFF_ROLE_ID no Render.'); process.exit(1); }
+if (!TOKEN || !SNOWFLAKE.test(GUILD_ID) || !STAFF_ROLE_IDS.length || STAFF_ROLE_IDS.some(id => !SNOWFLAKE.test(id))) {
+  console.error('Configure TOKEN, GUILD_ID e STAFF_ROLE_IDS (IDs numericos separados por virgula) no Render.'); process.exit(1);
+}
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const GOLD = 0xD6AC58;
 const topics = {
@@ -21,7 +27,11 @@ const topics = {
 };
 const topicOf = (owner, type) => `novaera-ticket|${owner}|${type}`;
 const parseTicket = ch => { const m = /^novaera-ticket\|(\d+)\|([a-z]+)$/.exec(ch?.topic || ''); return m ? { owner: m[1], type: m[2] } : null; };
-const isStaff = i => Boolean(i.member?.roles?.cache?.has(STAFF_ROLE_ID) || i.memberPermissions?.has(PermissionsBitField.Flags.ManageGuild) || i.memberPermissions?.has(PermissionsBitField.Flags.Administrator));
+const isStaff = i => {
+  const roles = i.member?.roles;
+  const hasRole = STAFF_ROLE_IDS.some(id => Array.isArray(roles) ? roles.includes(id) : Boolean(roles?.cache?.has(id)));
+  return hasRole || Boolean(i.memberPermissions?.has(PermissionsBitField.Flags.ManageGuild) || i.memberPermissions?.has(PermissionsBitField.Flags.Administrator));
+};
 const privateReply = (i, content) => i.reply({ content, flags: MessageFlags.Ephemeral });
 const asset = name => path.join(__dirname, 'assets', name);
 const img = name => new AttachmentBuilder(asset(name), { name });
@@ -88,22 +98,24 @@ client.on('interactionCreate', async i => {
       const channels = await i.guild.channels.fetch();
       const existing = channels.find(ch => ch && parseTicket(ch)?.owner === i.user.id);
       if (existing) return i.editReply(`⚠️ Você já tem um ticket aberto: ${existing}`);
-      // Resolve os objetos antes de criar permissionOverwrites. Um ID de cargo
-      // incorreto ou nao carregado causava DiscordjsTypeError [InvalidType].
-      const staffRole = await i.guild.roles.fetch(STAFF_ROLE_ID).catch(() => null);
-      if (!staffRole) {
-        console.error(`STAFF_ROLE_ID invalido para o servidor ${i.guild.id}: ${STAFF_ROLE_ID}`);
-        return i.editReply('❌ O cargo da equipe nao foi encontrado. Confira STAFF_ROLE_ID no Render (copie o ID do CARGO, nao do usuario ou canal).');
-      }
-      const ticketMember = await i.guild.members.fetch(i.user.id);
-      const botMember = await i.guild.members.fetchMe();
-      const allow = [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.AttachFiles];
-      const overwrites = [
-        { id: i.guild.roles.everyone, deny: [PermissionsBitField.Flags.ViewChannel] },
-        { id: ticketMember, allow },
-        { id: staffRole, allow },
-        { id: botMember, allow: [...allow, PermissionsBitField.Flags.ManageChannels] }
-      ];
+       // Resolve cada cargo e ignora IDs que nao existem neste servidor.
+       const roles = await Promise.all(STAFF_ROLE_IDS.map(id => i.guild.roles.fetch(id).catch(() => null)));
+       const validRoles = roles.filter(Boolean);
+       if (!validRoles.length) {
+         console.error('Nenhum cargo de STAFF_ROLE_IDS encontrado neste servidor:', STAFF_ROLE_IDS.join(', '));
+         return i.editReply('❌ Nenhum cargo de atendimento foi encontrado. Confira STAFF_ROLE_IDS no Render.');
+       }
+       if (validRoles.length !== STAFF_ROLE_IDS.length) {
+         console.warn('Alguns IDs em STAFF_ROLE_IDS nao correspondem a cargos deste servidor.');
+       }
+       const allow = [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.AttachFiles];
+       // Usar IDs em vez de objetos evita erro InvalidType por cache ausente.
+       const overwrites = [
+         { id: i.guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+         { id: i.user.id, allow },
+         ...validRoles.map(role => ({ id: role.id, allow })),
+         { id: client.user.id, allow: [...allow, PermissionsBitField.Flags.ManageChannels, PermissionsBitField.Flags.EmbedLinks] }
+       ];
       if (TICKET_CATEGORY_ID) {
         const category = await i.guild.channels.fetch(TICKET_CATEGORY_ID).catch(() => null);
         if (!category || category.type !== ChannelType.GuildCategory) {
@@ -111,7 +123,7 @@ client.on('interactionCreate', async i => {
         }
       }
       const ch = await i.guild.channels.create({ name: `ticket-${shortName(i.user.username)}`, type: ChannelType.GuildText, ...(TICKET_CATEGORY_ID ? { parent: TICKET_CATEGORY_ID } : {}), topic: topicOf(i.user.id, type), permissionOverwrites: overwrites, reason: `Ticket ${topics[type].name} aberto por ${i.user.tag}` });
-      await ch.send({ content: `<@${i.user.id}> <@&${STAFF_ROLE_ID}>`, embeds: [ticketEmbed(i.user.id, type, ch.id)], files: [img('logo-ticket.png')], components: controls(), allowedMentions: { users: [i.user.id], roles: [STAFF_ROLE_ID] } });
+      await ch.send({ content: `<@${i.user.id}> ${validRoles.map(role => `<@&${role.id}>`).join(' ')}`, embeds: [ticketEmbed(i.user.id, type, ch.id)], files: [img('logo-ticket.png')], components: controls(), allowedMentions: { users: [i.user.id], roles: validRoles.map(role => role.id) } });
       await i.editReply(`✅ Seu ticket foi aberto: ${ch}`);
       await sendLog(i.guild, new EmbedBuilder().setColor(GOLD).setTitle('🎫 Ticket aberto').addFields({ name: 'Jogador', value: `<@${i.user.id}>` }, { name: 'Categoria', value: topics[type].name }, { name: 'Canal', value: `${ch}` }).setTimestamp());
       return;
