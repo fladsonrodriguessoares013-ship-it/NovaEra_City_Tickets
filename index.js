@@ -18,6 +18,7 @@ if (!TOKEN || !SNOWFLAKE.test(GUILD_ID) || !STAFF_ROLE_IDS.length || STAFF_ROLE_
   console.error('Configure TOKEN, GUILD_ID e STAFF_ROLE_IDS (IDs numericos separados por virgula) no Render.'); process.exit(1);
 }
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+console.log('[NovaEra Tickets] Versao corrigida 2026-11-02 iniciando');
 const GOLD = 0xD6AC58;
 const topics = {
   suporte: { name: 'Suporte Geral', emoji: '🎧', description: 'Dúvidas e ajuda com a cidade' },
@@ -84,6 +85,7 @@ client.once('clientReady', async () => {
 });
 client.on('interactionCreate', async i => {
   if (!i.inGuild() || i.guildId !== GUILD_ID) return;
+  console.log('[INTERACAO]', i.id, i.customId || i.commandName || 'desconhecida', 'usuario:', i.user.id);
   try {
     if (i.isChatInputCommand() && i.commandName === 'painel') {
       if (!isStaff(i)) return privateReply(i, '❌ Apenas a equipe pode publicar o painel.');
@@ -167,5 +169,8 @@ client.on('interactionCreate', async i => {
   }
 });
 client.on('error', console.error);
-http.createServer((req, res) => { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('NovaEra City Tickets online'); }).listen(PORT, '0.0.0.0', () => console.log('HTTP na porta', PORT));
+client.on('shardDisconnect', (event, id) => console.error('[DISCORD DESCONECTADO]', id, event?.code));
+client.on('shardReconnecting', id => console.warn('[DISCORD RECONECTANDO]', id));
+client.on('shardResume', id => console.log('[DISCORD RECONECTADO]', id));
+http.createServer((req, res) => { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('NovaEra City Tickets | Discord: ' + (client.isReady() ? 'conectado' : 'desconectado')); }).listen(PORT, '0.0.0.0', () => console.log('HTTP na porta', PORT));
 client.login(TOKEN).catch(e => { console.error('Erro no login:', e); process.exit(1); });
