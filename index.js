@@ -36,17 +36,18 @@ const isStaff = i => {
 const privateReply = (i, content) => i.reply({ content, flags: MessageFlags.Ephemeral });
 const asset = name => path.join(__dirname, 'assets', name);
 const img = name => new AttachmentBuilder(asset(name), { name });
+const hasAsset = name => fs.existsSync(asset(name));
 const shortName = str => str.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').slice(0, 35);
 
 function panelPayload() {
   const embed = new EmbedBuilder().setColor(GOLD)
     .setTitle('🎫 NOVAERA CITY | PAINEL DE ATENDIMENTO')
     .setDescription('**Abra um ticket para falar com nossa equipe.**\nEscolha o tipo de atendimento no menu abaixo.\n\n🔒 Seu atendimento será realizado em um **canal privado**.\n⚠️ Não compartilhe senhas ou informações bancárias.')
-    .setImage('attachment://painel-novaera.png')
+    .setImage(hasAsset('painel-novaera.png') ? 'attachment://painel-novaera.png' : null)
     .setFooter({ text: 'NOVAERA CITY • CIDADE QUE EVOLUI COM VOCÊ' });
   const select = new StringSelectMenuBuilder().setCustomId('novaera:open').setPlaceholder('🎫 Selecione o tipo de atendimento')
     .addOptions(Object.entries(topics).map(([value, t]) => ({ label: t.name, description: t.description, value, emoji: t.emoji })));
-  return { embeds: [embed], files: [img('painel-novaera.png')], components: [new ActionRowBuilder().addComponents(select)] };
+  return { embeds: [embed], files: hasAsset('painel-novaera.png') ? [img('painel-novaera.png')] : [], components: [new ActionRowBuilder().addComponents(select)] };
 }
 function ticketEmbed(owner, type, channelId, claimedBy = null) {
   const t = topics[type];
@@ -59,7 +60,7 @@ function ticketEmbed(owner, type, channelId, claimedBy = null) {
       { name: '⚙️ Status', value: claimedBy ? `🟢 Em atendimento por <@${claimedBy}>` : '🟡 Aguardando atendimento', inline: false },
       { name: '🔖 Ticket', value: `#${channelId.slice(-6)}`, inline: true }
     )
-    .setThumbnail('attachment://logo-ticket.png')
+    .setThumbnail(hasAsset('logo-ticket.png') ? 'attachment://logo-ticket.png' : null)
     .setFooter({ text: 'NOVAERA CITY • CIDADE QUE EVOLUI COM VOCÊ' }).setTimestamp();
 }
 function controls(claimed = false) {
@@ -85,6 +86,11 @@ client.once('clientReady', async () => {
 });
 client.on('interactionCreate', async i => {
   if (!i.inGuild() || i.guildId !== GUILD_ID) return;
+  // Confirmar a interacao ANTES de consultas ao Discord ou operacoes demoradas.
+  if (i.isStringSelectMenu() && i.customId === 'novaera:open') {
+    try { await i.deferReply({ flags: MessageFlags.Ephemeral }); }
+    catch (err) { console.error('Falha ao confirmar menu (bot offline/atrasado ou interacao expirada):', err); return; }
+  }
   console.log('[INTERACAO]', i.id, i.customId || i.commandName || 'desconhecida', 'usuario:', i.user.id);
   try {
     if (i.isChatInputCommand() && i.commandName === 'painel') {
@@ -95,8 +101,7 @@ client.on('interactionCreate', async i => {
     }
     if (i.isStringSelectMenu() && i.customId === 'novaera:open') {
       const type = i.values[0];
-      if (!topics[type]) return privateReply(i, '❌ Categoria inválida.');
-      await i.deferReply({ flags: MessageFlags.Ephemeral });
+      if (!topics[type]) return i.editReply('❌ Categoria inválida.');
       const channels = await i.guild.channels.fetch();
       const existing = channels.find(ch => ch && parseTicket(ch)?.owner === i.user.id);
       if (existing) return i.editReply(`⚠️ Você já tem um ticket aberto: ${existing}`);
@@ -125,7 +130,7 @@ client.on('interactionCreate', async i => {
         }
       }
       const ch = await i.guild.channels.create({ name: `ticket-${shortName(i.user.username)}`, type: ChannelType.GuildText, ...(TICKET_CATEGORY_ID ? { parent: TICKET_CATEGORY_ID } : {}), topic: topicOf(i.user.id, type), permissionOverwrites: overwrites, reason: `Ticket ${topics[type].name} aberto por ${i.user.tag}` });
-      await ch.send({ content: `<@${i.user.id}> ${validRoles.map(role => `<@&${role.id}>`).join(' ')}`, embeds: [ticketEmbed(i.user.id, type, ch.id)], files: [img('logo-ticket.png')], components: controls(), allowedMentions: { users: [i.user.id], roles: validRoles.map(role => role.id) } });
+      await ch.send({ content: `<@${i.user.id}> ${validRoles.map(role => `<@&${role.id}>`).join(' ')}`, embeds: [ticketEmbed(i.user.id, type, ch.id)], files: hasAsset('logo-ticket.png') ? [img('logo-ticket.png')] : [], components: controls(), allowedMentions: { users: [i.user.id], roles: validRoles.map(role => role.id) } });
       await i.editReply(`✅ Seu ticket foi aberto: ${ch}`);
       await sendLog(i.guild, new EmbedBuilder().setColor(GOLD).setTitle('🎫 Ticket aberto').addFields({ name: 'Jogador', value: `<@${i.user.id}>` }, { name: 'Categoria', value: topics[type].name }, { name: 'Canal', value: `${ch}` }).setTimestamp());
       return;
@@ -135,7 +140,7 @@ client.on('interactionCreate', async i => {
       if (!ticket) return privateReply(i, '❌ Este canal não é um ticket válido.');
       if (!isStaff(i)) return privateReply(i, '❌ Apenas a equipe pode assumir tickets.');
       await i.deferUpdate();
-      await i.message.edit({ embeds: [ticketEmbed(ticket.owner, ticket.type, i.channel.id, i.user.id)], components: controls(true), files: [img('logo-ticket.png')] });
+      await i.message.edit({ embeds: [ticketEmbed(ticket.owner, ticket.type, i.channel.id, i.user.id)], components: controls(true), files: hasAsset('logo-ticket.png') ? [img('logo-ticket.png')] : [] });
       await i.channel.send(`👮 Atendimento assumido por <@${i.user.id}>.`);
       return;
     }
