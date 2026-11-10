@@ -18,7 +18,7 @@ if (!TOKEN || !SNOWFLAKE.test(GUILD_ID) || !STAFF_ROLE_IDS.length || STAFF_ROLE_
   console.error('Configure TOKEN, GUILD_ID e STAFF_ROLE_IDS (IDs numericos separados por virgula) no Render.'); process.exit(1);
 }
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
-console.log('[NovaEra Tickets] Versao corrigida 2026-11-02 iniciando');
+console.log('[NovaEra Tickets] Versao corrigida 2026-11-10 iniciando');
 const GOLD = 0xD6AC58;
 const topics = {
   suporte: { name: 'Suporte Geral', emoji: '🎧', description: 'Dúvidas e ajuda com a cidade' },
@@ -177,5 +177,27 @@ client.on('error', console.error);
 client.on('shardDisconnect', (event, id) => console.error('[DISCORD DESCONECTADO]', id, event?.code));
 client.on('shardReconnecting', id => console.warn('[DISCORD RECONECTANDO]', id));
 client.on('shardResume', id => console.log('[DISCORD RECONECTADO]', id));
-http.createServer((req, res) => { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('NovaEra City Tickets | Discord: ' + (client.isReady() ? 'conectado' : 'desconectado')); }).listen(PORT, '0.0.0.0', () => console.log('HTTP na porta', PORT));
-client.login(TOKEN).catch(e => { console.error('Erro no login:', e); process.exit(1); });
+http.createServer((req, res) => { const ready = client.isReady(); res.writeHead(ready ? 200 : 503, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify({service:'NovaEra City Tickets',botReady:ready,loginError:lastLoginError})); }).listen(PORT, '0.0.0.0', () => console.log('HTTP na porta', PORT));
+// Evita loop de reinicializacoes quando Discord retorna HTTP 429.
+let connecting = false;
+let loginAttempts = 0;
+let lastLoginError = null;
+let retryTimer = null;
+async function connectDiscord() {
+  if (connecting || client.isReady()) return;
+  connecting = true;
+  try {
+    await client.login(TOKEN);
+    loginAttempts = 0;
+    lastLoginError = null;
+  } catch (e) {
+    lastLoginError = { code: e.code || e.status || null, message: String(e.message || e).slice(0, 300) };
+    console.error('[DISCORD LOGIN]', lastLoginError);
+    if (/invalid token|tokeninvalid/i.test(lastLoginError.message) || String(lastLoginError.code) === '401') return;
+    const delay = Math.min(30 * 60 * 1000, 5 * 60 * 1000 * (2 ** Math.min(loginAttempts++, 3)));
+    console.warn(`Nova tentativa de conexao em ${Math.round(delay / 60000)} minutos.`);
+    retryTimer = setTimeout(() => { retryTimer = null; connectDiscord(); }, delay);
+  } finally { connecting = false; }
+}
+client.on('clientReady', () => { loginAttempts = 0; lastLoginError = null; });
+connectDiscord();
